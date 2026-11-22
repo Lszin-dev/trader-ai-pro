@@ -7,6 +7,7 @@ from supabase import create_client
 def obter_cliente():
     url = st.secrets["SUPABASE_URL"]
     chave = st.secrets["SUPABASE_KEY"]
+
     return create_client(url, chave)
 
 
@@ -50,9 +51,12 @@ def avaliar_sinais_pendentes(ativo, data_1m):
     cliente = obter_cliente()
 
     dados = data_1m.copy()
+
     dados.index = pd.to_datetime(
-        dados.index, utc=True
+        dados.index,
+        utc=True
     )
+
     dados = dados.sort_index()
 
     resposta = (
@@ -68,24 +72,26 @@ def avaliar_sinais_pendentes(ativo, data_1m):
     for sinal in resposta.data:
 
         horario = pd.to_datetime(
-            sinal["horario_entrada"], utc=True
+            sinal["horario_entrada"],
+            utc=True
         )
 
-        expiracao = int(sinal["expiracao_minutos"])
+        expiracao = int(
+            sinal["expiracao_minutos"]
+        )
 
-                horario_alvo = (
+        horario_alvo = (
             horario + pd.Timedelta(minutes=expiracao)
-        )
-
-        fechamento_candle = (
-            horario_alvo + pd.Timedelta(minutes=1)
         )
 
         agora = pd.Timestamp.now(tz="UTC")
 
-        if agora < fechamento_candle:
+        # Aguarda chegar ao horário da expiração
+        if agora < horario_alvo:
             continue
 
+        # Procura o candle iniciado exatamente
+        # no horário da expiração
         candles = dados.loc[
             dados.index == horario_alvo
         ]
@@ -100,9 +106,10 @@ def avaliar_sinais_pendentes(ativo, data_1m):
         )
 
         preco_final = float(
-            candle_final["close"]
+            candle_final["open"]
         )
 
+        # Compara os preços
         if preco_final == preco_entrada:
             resultado = "EMPATE"
 
@@ -120,6 +127,7 @@ def avaliar_sinais_pendentes(ativo, data_1m):
                 else "ERRO"
             )
 
+        # Atualiza o registro no Supabase
         (
             cliente.table("historico_sinais")
             .update({
