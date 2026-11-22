@@ -5,7 +5,7 @@ import pandas as pd
 from data_feed import get_market_data
 from indicators import calculate_indicators
 from strategy import analyze_market
-from historico import registrar_sinal
+from historico import registrar_sinal, avaliar_sinais_pendentes
 
 
 st.set_page_config(
