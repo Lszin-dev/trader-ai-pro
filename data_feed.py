@@ -3,22 +3,25 @@ import yfinance as yf
 import pandas as pd
 
 
+ATIVOS = {
+    "EURUSD": "EURUSD=X",
+    "GBPUSD": "GBPUSD=X",
+    "USDJPY": "USDJPY=X",
+    "AUDUSD": "AUDUSD=X",
+    "USDCHF": "USDCHF=X",
+    "EURGBP": "EURGBP=X",
+}
+
+
 def get_market_data(asset, minutes):
 
-    if asset == "EURUSD":
-        ticker = "EURUSD=X"
-
-    elif asset == "EURUSD-OTC":
-        raise ValueError(
-            "EUR/USD-OTC não está disponível nesta fonte gratuita."
-        )
-
-    else:
-        raise ValueError("Ativo não reconhecido.")
+    if asset not in ATIVOS:
+        raise ValueError("Ativo não reconhecido ou indisponível.")
 
     if minutes not in [1, 5]:
         raise ValueError("Use timeframe de 1 ou 5 minutos.")
 
+    ticker = ATIVOS[asset]
     interval = "1m" if minutes == 1 else "5m"
 
     data = yf.Ticker(ticker).history(
@@ -28,20 +31,17 @@ def get_market_data(asset, minutes):
     )
 
     if data.empty:
-        raise ValueError("A fonte não retornou candles.")
+        raise ValueError(f"Sem candles disponíveis para {asset}.")
 
-    data.columns = [
-        str(column).lower() for column in data.columns
-    ]
+    data.columns = [str(c).lower() for c in data.columns]
 
     required = ["open", "high", "low", "close"]
 
-    if not all(column in data.columns for column in required):
+    if not all(c in data.columns for c in required):
         raise ValueError("Formato de dados inesperado.")
 
     data = data[required].copy()
-    data = data.dropna()
-    data = data.sort_index()
+    data = data.dropna().sort_index()
 
     if data.empty:
         raise ValueError("Nenhum candle válido.")
@@ -54,16 +54,14 @@ def get_market_data(asset, minutes):
         ultimo_candle = ultimo_candle.tz_convert("UTC")
 
     agora = pd.Timestamp.now(tz="UTC")
-
     atraso = (agora - ultimo_candle).total_seconds()
 
     limite = 900 if minutes == 1 else 1800
 
     if atraso < 0 or atraso > limite:
         raise ValueError(
-            f"Dados desatualizados: último candle há "
-            f"{int(max(atraso, 0) / 60)} minutos. "
-            "Não é seguro gerar sinais."
+            f"{asset}: dados desatualizados. "
+            f"Último candle há {int(max(atraso, 0) / 60)} minutos."
         )
 
     ultimos = data.tail(5)
@@ -76,8 +74,8 @@ def get_market_data(asset, minutes):
 
     if sem_movimento:
         raise ValueError(
-            "Candles sem movimentação. "
-            "Aguardando dados com variação de preço."
+            f"{asset}: candles sem movimentação. "
+            "Não é seguro gerar sinais."
         )
 
     return data
