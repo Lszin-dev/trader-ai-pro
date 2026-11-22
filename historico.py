@@ -143,3 +143,89 @@ def avaliar_sinais_pendentes(ativo, data_1m):
         avaliados += 1
 
     return avaliados
+
+
+def obter_estatisticas(expiracao, semanal=False):
+
+    cliente = obter_cliente()
+
+    resposta = (
+        cliente.table("historico_sinais")
+        .select("resultado, horario_resultado")
+        .eq("expiracao_minutos", expiracao)
+        .execute()
+    )
+
+    dados = resposta.data or []
+
+    df = pd.DataFrame(dados)
+
+    if df.empty:
+        return {
+            "acertos": 0,
+            "erros": 0,
+            "empates": 0,
+            "pendentes": 0,
+            "total": 0,
+            "taxa": 0.0
+        }
+
+    if semanal:
+        df["horario_resultado"] = pd.to_datetime(
+            df["horario_resultado"],
+            utc=True,
+            errors="coerce"
+        )
+
+        agora = pd.Timestamp.now(
+            tz="America/Sao_Paulo"
+        )
+
+        inicio_semana = (
+            agora.normalize()
+            - pd.Timedelta(days=agora.weekday())
+        )
+
+        horarios_locais = (
+            df["horario_resultado"]
+            .dt.tz_convert("America/Sao_Paulo")
+        )
+
+        df = df[
+            horarios_locais >= inicio_semana
+        ]
+
+    acertos = int(
+        (df["resultado"] == "ACERTO").sum()
+    )
+
+    erros = int(
+        (df["resultado"] == "ERRO").sum()
+    )
+
+    empates = int(
+        (df["resultado"] == "EMPATE").sum()
+    )
+
+    pendentes = int(
+        (df["resultado"] == "AGUARDANDO").sum()
+    )
+
+    total = acertos + erros + empates
+
+    avaliados = acertos + erros
+
+    taxa = (
+        (acertos / avaliados) * 100
+        if avaliados > 0
+        else 0.0
+    )
+
+    return {
+        "acertos": acertos,
+        "erros": erros,
+        "empates": empates,
+        "pendentes": pendentes,
+        "total": total,
+        "taxa": round(taxa, 2)
+    }
