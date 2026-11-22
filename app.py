@@ -2,8 +2,6 @@
 import streamlit as st
 import pandas as pd
 
-from datetime import datetime, timezone
-
 from data_feed import get_market_data
 from indicators import calculate_indicators
 from strategy import analyze_market
@@ -83,8 +81,11 @@ if st.button("ANALISAR MERCADO", type="primary"):
                 )
 
                 horario_entrada = (
-                    datetime.now(timezone.utc).isoformat()
-                )
+                    pd.to_datetime(
+                        data_1m.index[-1],
+                        utc=True
+                    ) + pd.Timedelta(minutes=1)
+                ).isoformat()
 
                 registrar_sinal(
                     ativo=asset,
