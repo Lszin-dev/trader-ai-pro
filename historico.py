@@ -73,12 +73,21 @@ def avaliar_sinais_pendentes(ativo, data_1m):
 
         expiracao = int(sinal["expiracao_minutos"])
 
-        horario_alvo = (
+                horario_alvo = (
             horario + pd.Timedelta(minutes=expiracao)
         )
 
+        fechamento_candle = (
+            horario_alvo + pd.Timedelta(minutes=1)
+        )
+
+        agora = pd.Timestamp.now(tz="UTC")
+
+        if agora < fechamento_candle:
+            continue
+
         candles = dados.loc[
-            dados.index >= horario_alvo
+            dados.index == horario_alvo
         ]
 
         if candles.empty:
@@ -91,7 +100,7 @@ def avaliar_sinais_pendentes(ativo, data_1m):
         )
 
         preco_final = float(
-            candle_final["open"]
+            candle_final["close"]
         )
 
         if preco_final == preco_entrada:
