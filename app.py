@@ -5,7 +5,10 @@ import pandas as pd
 from data_feed import get_market_data
 from indicators import calculate_indicators
 from strategy import analyze_market
-from historico import registrar_sinal, avaliar_sinais_pendentes
+from historico import (
+    registrar_sinal,
+    avaliar_sinais_pendentes
+)
 
 
 st.set_page_config(
@@ -51,13 +54,40 @@ if st.button("ANALISAR MERCADO", type="primary"):
             f"Analisando {nome_ativo} em 1M e 5M..."
         ):
 
+            # Busca os dados do mercado
             data_1m = get_market_data(asset, 1)
             data_5m = get_market_data(asset, 5)
 
+            # Avalia sinais anteriores pendentes
+            try:
+                quantidade_avaliada = (
+                    avaliar_sinais_pendentes(
+                        asset,
+                        data_1m
+                    )
+                )
+
+                if quantidade_avaliada > 0:
+                    st.success(
+                        f"{quantidade_avaliada} "
+                        "registro(s) avaliado(s) no histórico."
+                    )
+
+            except Exception as erro_historico:
+                st.warning(
+                    "Não foi possível avaliar os sinais "
+                    f"pendentes: {erro_historico}"
+                )
+
+            # Calcula os indicadores
             data_1m = calculate_indicators(data_1m)
             data_5m = calculate_indicators(data_5m)
 
-            result = analyze_market(data_1m, data_5m)
+            # Analisa o mercado
+            result = analyze_market(
+                data_1m,
+                data_5m
+            )
 
         st.divider()
         st.subheader(f"Resultado: {nome_ativo}")
@@ -73,6 +103,7 @@ if st.button("ANALISAR MERCADO", type="primary"):
 
         st.write("**Motivo:**", result["reason"])
 
+        # Registra os novos sinais
         if result["signal"] in ["CALL", "PUT"]:
 
             try:
@@ -101,10 +132,11 @@ if st.button("ANALISAR MERCADO", type="primary"):
 
             except Exception as erro:
                 st.warning(
-                    f"Sinal gerado, mas não foi possível "
+                    "Sinal gerado, mas não foi possível "
                     f"registrar no histórico: {erro}"
                 )
 
+        # Indicadores técnicos
         st.divider()
         st.subheader("Indicadores técnicos")
 
@@ -115,26 +147,55 @@ if st.button("ANALISAR MERCADO", type="primary"):
 
             last_1m = data_1m.iloc[-1]
 
-            st.metric("RSI 1M", round(last_1m["RSI"], 2))
-            st.metric("EMA 9", round(last_1m["EMA9"], 5))
-            st.metric("EMA 21", round(last_1m["EMA21"], 5))
+            st.metric(
+                "RSI 1M",
+                round(last_1m["RSI"], 2)
+            )
+
+            st.metric(
+                "EMA 9",
+                round(last_1m["EMA9"], 5)
+            )
+
+            st.metric(
+                "EMA 21",
+                round(last_1m["EMA21"], 5)
+            )
 
         with col2:
             st.markdown("### Gráfico de 5 minutos")
 
             last_5m = data_5m.iloc[-1]
 
-            st.metric("RSI 5M", round(last_5m["RSI"], 2))
-            st.metric("EMA 9", round(last_5m["EMA9"], 5))
-            st.metric("EMA 21", round(last_5m["EMA21"], 5))
+            st.metric(
+                "RSI 5M",
+                round(last_5m["RSI"], 2)
+            )
 
+            st.metric(
+                "EMA 9",
+                round(last_5m["EMA9"], 5)
+            )
+
+            st.metric(
+                "EMA 21",
+                round(last_5m["EMA21"], 5)
+            )
+
+        # Histórico de preços
         st.divider()
         st.subheader("Histórico de preços")
 
-        st.markdown(f"#### {nome_ativo} — 1 minuto")
+        st.markdown(
+            f"#### {nome_ativo} — 1 minuto"
+        )
+
         st.line_chart(data_1m["close"])
 
-        st.markdown(f"#### {nome_ativo} — 5 minutos")
+        st.markdown(
+            f"#### {nome_ativo} — 5 minutos"
+        )
+
         st.line_chart(data_5m["close"])
 
     except Exception as error:
