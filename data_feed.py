@@ -46,24 +46,42 @@ def get_market_data(asset, minutes):
     if data.empty:
         raise ValueError("Nenhum candle válido.")
 
-    ultimo_candle = pd.Timestamp(data.index[-1])
-
-    if ultimo_candle.tzinfo is None:
-        ultimo_candle = ultimo_candle.tz_localize("UTC")
-    else:
-        ultimo_candle = ultimo_candle.tz_convert("UTC")
+    # Padroniza os horários em UTC
+    indice = pd.to_datetime(data.index, utc=True)
+    data.index = indice
 
     agora = pd.Timestamp.now(tz="UTC")
-    atraso = (agora - ultimo_candle).total_seconds()
+
+    # Remove candles que ainda não tiveram tempo de fechar
+    fechamento_estimado = (
+        data.index + pd.Timedelta(minutes=minutes)
+    )
+
+    data = data.loc[fechamento_estimado <= agora]
+
+    if data.empty:
+        raise ValueError(
+            f"{asset}: ainda não existem candles fechados disponíveis."
+        )
+
+    # Verifica se os dados são recentes
+    ultimo_candle = data.index[-1]
+    horario_fechamento = (
+        ultimo_candle + pd.Timedelta(minutes=minutes)
+    )
+
+    atraso = (agora - horario_fechamento).total_seconds()
 
     limite = 900 if minutes == 1 else 1800
 
     if atraso < 0 or atraso > limite:
         raise ValueError(
             f"{asset}: dados desatualizados. "
-            f"Último candle há {int(max(atraso, 0) / 60)} minutos."
+            f"Último candle fechado há "
+            f"{int(max(atraso, 0) / 60)} minutos."
         )
 
+    # Verifica se os últimos candles apresentam movimentação
     ultimos = data.tail(5)
 
     sem_movimento = (
