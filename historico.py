@@ -145,6 +145,7 @@ def avaliar_sinais_pendentes(ativo, data_1m):
     return avaliados
 
 
+
 def obter_estatisticas(expiracao, semanal=False):
 
     cliente = obter_cliente()
@@ -229,3 +230,5 @@ def obter_estatisticas(expiracao, semanal=False):
         "total": total,
         "taxa": round(taxa, 2)
     }
+
+    
