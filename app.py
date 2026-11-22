@@ -1,9 +1,14 @@
 
 import streamlit as st
+import pandas as pd
+
+from datetime import datetime, timezone
 
 from data_feed import get_market_data
 from indicators import calculate_indicators
 from strategy import analyze_market
+from historico import registrar_sinal
+
 
 st.set_page_config(
     page_title="TRADER AI PRO",
@@ -36,14 +41,17 @@ nome_ativo = st.selectbox(
 asset = ativos[nome_ativo]
 
 st.caption(
-    "Fonte: Yahoo Finance. Cotações não oficiais da IQ Option. "
+    "Fonte: Yahoo Finance. "
+    "Cotações não oficiais da IQ Option. "
     "Pares OTC não disponíveis."
 )
 
 if st.button("ANALISAR MERCADO", type="primary"):
 
     try:
-        with st.spinner(f"Analisando {nome_ativo} em 1M e 5M..."):
+        with st.spinner(
+            f"Analisando {nome_ativo} em 1M e 5M..."
+        ):
 
             data_1m = get_market_data(asset, 1)
             data_5m = get_market_data(asset, 5)
@@ -67,6 +75,35 @@ if st.button("ANALISAR MERCADO", type="primary"):
 
         st.write("**Motivo:**", result["reason"])
 
+        if result["signal"] in ["CALL", "PUT"]:
+
+            try:
+                preco_entrada = float(
+                    data_1m.iloc[-1]["close"]
+                )
+
+                horario_entrada = (
+                    datetime.now(timezone.utc).isoformat()
+                )
+
+                registrar_sinal(
+                    ativo=asset,
+                    direcao=result["signal"],
+                    horario_entrada=horario_entrada,
+                    preco_entrada=preco_entrada
+                )
+
+                st.success(
+                    "Sinal registrado no histórico "
+                    "para avaliações de 1M e 5M."
+                )
+
+            except Exception as erro:
+                st.warning(
+                    f"Sinal gerado, mas não foi possível "
+                    f"registrar no histórico: {erro}"
+                )
+
         st.divider()
         st.subheader("Indicadores técnicos")
 
@@ -74,6 +111,7 @@ if st.button("ANALISAR MERCADO", type="primary"):
 
         with col1:
             st.markdown("### Gráfico de 1 minuto")
+
             last_1m = data_1m.iloc[-1]
 
             st.metric("RSI 1M", round(last_1m["RSI"], 2))
@@ -82,6 +120,7 @@ if st.button("ANALISAR MERCADO", type="primary"):
 
         with col2:
             st.markdown("### Gráfico de 5 minutos")
+
             last_5m = data_5m.iloc[-1]
 
             st.metric("RSI 5M", round(last_5m["RSI"], 2))
@@ -98,7 +137,9 @@ if st.button("ANALISAR MERCADO", type="primary"):
         st.line_chart(data_5m["close"])
 
     except Exception as error:
-        st.error(f"Não foi possível realizar a análise: {error}")
+        st.error(
+            f"Não foi possível realizar a análise: {error}"
+        )
 
 st.divider()
 
