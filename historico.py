@@ -1,15 +1,35 @@
 
-import streamlit as st
+import os
 import pandas as pd
+import streamlit as st
 from supabase import create_client
 
 
+# ==========================================
+# CONEXÃO COM SUPABASE
+# ==========================================
+
 def obter_cliente():
-    url = st.secrets["SUPABASE_URL"]
-    chave = st.secrets["SUPABASE_KEY"]
+
+    url = os.getenv("SUPABASE_URL")
+    chave = os.getenv("SUPABASE_KEY")
+
+    # No Streamlit, utiliza os Secrets como alternativa
+    if not url or not chave:
+        try:
+            url = st.secrets["SUPABASE_URL"]
+            chave = st.secrets["SUPABASE_KEY"]
+        except Exception:
+            raise ValueError(
+                "Configure SUPABASE_URL e SUPABASE_KEY."
+            )
 
     return create_client(url, chave)
 
+
+# ==========================================
+# REGISTRAR SINAIS
+# ==========================================
 
 def registrar_sinal(
     ativo,
@@ -17,6 +37,7 @@ def registrar_sinal(
     horario_entrada,
     preco_entrada
 ):
+
     if direcao not in ["CALL", "PUT"]:
         raise ValueError("Direção inválida.")
 
@@ -25,6 +46,7 @@ def registrar_sinal(
     registros = []
 
     for expiracao in [1, 5]:
+
         registros.append({
             "ativo": ativo,
             "direcao": direcao,
@@ -42,6 +64,10 @@ def registrar_sinal(
 
     return resposta.data
 
+
+# ==========================================
+# AVALIAR SINAIS PENDENTES
+# ==========================================
 
 def avaliar_sinais_pendentes(ativo, data_1m):
 
@@ -69,6 +95,8 @@ def avaliar_sinais_pendentes(ativo, data_1m):
 
     avaliados = 0
 
+    agora = pd.Timestamp.now(tz="UTC")
+
     for sinal in resposta.data:
 
         horario = pd.to_datetime(
@@ -84,9 +112,7 @@ def avaliar_sinais_pendentes(ativo, data_1m):
             horario + pd.Timedelta(minutes=expiracao)
         )
 
-        agora = pd.Timestamp.now(tz="UTC")
-
-        # Aguarda chegar ao horário da expiração
+        # Aguarda a expiração
         if agora < horario_alvo:
             continue
 
@@ -109,11 +135,13 @@ def avaliar_sinais_pendentes(ativo, data_1m):
             candle_final["open"]
         )
 
-        # Compara os preços
+        # Calcula o resultado
         if preco_final == preco_entrada:
+
             resultado = "EMPATE"
 
         elif sinal["direcao"] == "CALL":
+
             resultado = (
                 "ACERTO"
                 if preco_final > preco_entrada
@@ -121,13 +149,14 @@ def avaliar_sinais_pendentes(ativo, data_1m):
             )
 
         else:
+
             resultado = (
                 "ACERTO"
                 if preco_final < preco_entrada
                 else "ERRO"
             )
 
-        # Atualiza o registro no Supabase
+        # Atualiza o Supabase
         (
             cliente.table("historico_sinais")
             .update({
@@ -145,6 +174,9 @@ def avaliar_sinais_pendentes(ativo, data_1m):
     return avaliados
 
 
+# ==========================================
+# ESTATÍSTICAS SEMANAIS E GERAIS
+# ==========================================
 
 def obter_estatisticas(expiracao, semanal=False):
 
@@ -162,6 +194,7 @@ def obter_estatisticas(expiracao, semanal=False):
     df = pd.DataFrame(dados)
 
     if df.empty:
+
         return {
             "acertos": 0,
             "erros": 0,
@@ -172,6 +205,7 @@ def obter_estatisticas(expiracao, semanal=False):
         }
 
     if semanal:
+
         df["horario_resultado"] = pd.to_datetime(
             df["horario_resultado"],
             utc=True,
@@ -230,5 +264,3 @@ def obter_estatisticas(expiracao, semanal=False):
         "total": total,
         "taxa": round(taxa, 2)
     }
-
-    
