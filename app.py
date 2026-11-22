@@ -7,7 +7,8 @@ from indicators import calculate_indicators
 from strategy import analyze_market
 from historico import (
     registrar_sinal,
-    avaliar_sinais_pendentes
+    avaliar_sinais_pendentes,
+    obter_estatisticas
 )
 
 
