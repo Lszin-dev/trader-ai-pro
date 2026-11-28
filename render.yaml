@@ -1,0 +1,17 @@
+services:
+  - type: worker
+    name: trader-ai-pro-monitor
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python worker.py
+    autoDeploy: false
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SCAN_INTERVAL_SECONDS
+        value: "60"
