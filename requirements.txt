@@ -6,3 +6,4 @@ yfinance
 requests
 otcharts
 supabase
+streamlit-autorefresh
