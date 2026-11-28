@@ -68,6 +68,13 @@ class OTChartsFeed:
             raise OTChartsError("Formato inesperado retornado pelo OTCharts.")
         return payload
 
+    def get_usage(self) -> Dict[str, Any]:
+        """Read account quota and plan metadata; this endpoint is not charged."""
+        payload = self._get("/v1/usage", {})
+        if not isinstance(payload.get("requests"), dict):
+            raise OTChartsError("Resposta de uso/cota inválida do OTCharts.")
+        return payload
+
     def list_symbols(self, venue: str = "iq") -> List[Dict[str, Any]]:
         venue = venue.lower().strip()
         if venue not in SUPPORTED_VENUES:
