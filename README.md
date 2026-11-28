@@ -51,3 +51,9 @@ O GitHub Actions também compila os arquivos Python antes de executar os testes.
 ## Limitações importantes
 
 Twelve Data fornece mercado Forex agregado; não é a cotação oficial da IQ Option e não fornece os mercados OTC exclusivos da corretora. Por isso o sistema mantém candidatos como observação e não transforma automaticamente uma leitura externa em entrada executável.
+
+## Replay histórico experimental (offline)
+
+`python backtest.py dados.csv --output replay_results.csv`
+
+CSV com colunas time,open,high,low,close (time = abertura do candle 1M em UTC). O replay usa somente candles encerrados na decisão, entrada hipotética com atraso de um minuto, expirações 1 e 5 minutos, e rejeita lacunas. Não reproduz latência real, cotação da corretora, payout ou slippage; não comprova lucratividade. Valide com dados fora da amostra e registre a origem do CSV. Nenhum dado real foi coletado automaticamente por esse comando.

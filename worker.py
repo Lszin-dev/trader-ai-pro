@@ -17,11 +17,11 @@ import pandas as pd
 
 from data_feed import ATIVOS, get_market_data
 from entry_validation import validate_entry_quote
-from historico import avaliar_sinais_pendentes
 from indicators import calculate_indicators
 from market_guard import forex_market_status
 from monitor_state import salvar_estado_monitoramento
 from strategy import analyze_market
+from reliability import advance_confirmation, closed_five_minute, validate_ohlc
 
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -78,12 +78,7 @@ def _stop_worker(signum, _frame):
 
 
 def _resample_5m(data_1m: pd.DataFrame) -> pd.DataFrame:
-    data = data_1m[["open", "high", "low", "close"]].copy()
-    result = data.resample("5min", label="left", closed="left").agg(
-        {"open": "first", "high": "max", "low": "min", "close": "last"}
-    )
-    counts = data["close"].resample("5min", label="left", closed="left").count()
-    return result.loc[counts == 5].dropna()
+    return closed_five_minute(data_1m)
 
 
 def _get_otcharts_symbols(feed) -> List[str]:
@@ -153,17 +148,16 @@ def _analyze_frames(asset_key: str, data_1m: pd.DataFrame) -> Dict[str, object]:
     return {"asset": asset_key, "status": "observed", "signal": signal_value, "reason": reason, "details": details}
 
 
-def _update_candidate_streak(asset: str, signal_value: str) -> int:
-    if signal_value not in ("CALL", "PUT"):
+def _update_candidate_streak(asset: str, signal_value: str, candle_time=None):
+    state, advanced = advance_confirmation(
+        _CANDIDATE_STATE.get(asset), signal_value, candle_time,
+        max_gap_seconds=SCAN_INTERVAL_SECONDS + 60,
+    )
+    if state is None:
         _CANDIDATE_STATE.pop(asset, None)
-        return 0
-    previous = _CANDIDATE_STATE.get(asset)
-    if previous and previous.get("signal") == signal_value:
-        count = int(previous.get("count", 0)) + 1
-    else:
-        count = 1
-    _CANDIDATE_STATE[asset] = {"signal": signal_value, "count": count}
-    return count
+        return 0, False
+    _CANDIDATE_STATE[asset] = state
+    return state["count"], advanced
 
 
 def _revalidate_twelvedata(feed, symbol: str, asset_key: str) -> Dict[str, object]:
@@ -242,8 +236,8 @@ def scan_otcharts_symbol(feed, symbol: str) -> Dict[str, object]:
     try:
         data_1m = feed.get_candles(OTCHARTS_VENUE, symbol, timeframe_seconds=60, limit=1000, max_age_seconds=90)
         outcome = _analyze_frames(asset_key, data_1m)
-        outcome["evaluated"] = avaliar_sinais_pendentes(asset_key, data_1m)
-        outcome["details"]["candidate_confirmations"] = _update_candidate_streak(asset_key, outcome["signal"])
+        outcome["evaluated"] = 0  # observation-only: preserve legacy history
+        outcome["details"]["candidate_confirmations"] = _update_candidate_streak(asset_key, outcome["signal"], data_1m.index[-1])[0]
         outcome["details"]["required_confirmations"] = MIN_CANDIDATE_CONFIRMATIONS
         _persist_state("otcharts", outcome, data_1m)
         return outcome
@@ -260,19 +254,19 @@ def scan_twelvedata_symbol(feed, symbol: str) -> Dict[str, object]:
     try:
         data_1m = feed.get_candles(symbol=symbol, interval="1min", outputsize=250, max_age_seconds=150)
         outcome = _analyze_frames(asset_key, data_1m)
-        streak = _update_candidate_streak(asset_key, outcome["signal"])
+        streak, advanced = _update_candidate_streak(asset_key, outcome["signal"], data_1m.index[-1])
         outcome["details"]["candidate_confirmations"] = streak
         outcome["details"]["required_confirmations"] = MIN_CANDIDATE_CONFIRMATIONS
 
         if outcome["signal"] in ("CALL", "PUT"):
-            if streak == MIN_CANDIDATE_CONFIRMATIONS:
+            if streak == MIN_CANDIDATE_CONFIRMATIONS and advanced:
                 revalidation = _revalidate_twelvedata(feed, symbol, asset_key)
                 outcome["details"]["provider_revalidation"] = revalidation
                 if revalidation.get("valid"):
                     outcome["reason"] += " Revalidado neste ciclo no provedor; a cotação da corretora ainda precisa coincidir no instante da entrada."
                 else:
                     outcome["reason"] += " Candidato bloqueado porque não houve uma revalidação atual válida."
-            elif streak > MIN_CANDIDATE_CONFIRMATIONS:
+            elif streak >= MIN_CANDIDATE_CONFIRMATIONS:
                 outcome["details"]["provider_revalidation"] = {
                     "valid": False,
                     "provider": "twelvedata",
@@ -298,7 +292,9 @@ def scan_yahoo_asset(asset: str) -> Dict[str, object]:
     try:
         data_1m = get_market_data(asset, 1)
         data_5m = get_market_data(asset, 5)
-        evaluated = avaliar_sinais_pendentes(asset, data_1m)
+        validate_ohlc(data_1m)
+        validate_ohlc(data_5m)
+        evaluated = 0  # observation-only: preserve legacy history
         analysis = analyze_market(calculate_indicators(data_1m), calculate_indicators(data_5m))
         signal_value = str(analysis.get("signal", "AGUARDAR"))
         details = {
@@ -306,7 +302,7 @@ def scan_yahoo_asset(asset: str) -> Dict[str, object]:
             "quality": analysis.get("quality", "AGUARDAR"),
             "metrics": analysis.get("metrics", {}),
             "checks": analysis.get("checks", {}),
-            "candidate_confirmations": _update_candidate_streak(asset, signal_value),
+            "candidate_confirmations": _update_candidate_streak(asset, signal_value, data_1m.index[-1])[0],
             "required_confirmations": MIN_CANDIDATE_CONFIRMATIONS,
         }
         outcome = {"asset": asset, "status": "observed", "signal": signal_value, "evaluated": evaluated, "reason": analysis.get("reason", ""), "details": details}
@@ -369,6 +365,7 @@ def run_cycle() -> Dict[str, int]:
                     reason = "Cota diária da Twelve Data próxima do limite; leituras pausadas para preservar o plano."
                     for symbol in TWELVE_DATA_SYMBOLS:
                         asset_key = f"FOREX:{symbol.replace('/', '')}"
+                        _update_candidate_streak(asset_key, "AGUARDAR")
                         outcome = {"asset": asset_key, "status": "observed", "signal": "AGUARDAR", "reason": reason, "details": {"api_usage": usage, "quota_guard": True}}
                         _persist_state("twelvedata", outcome)
                         totals["assets"] += 1

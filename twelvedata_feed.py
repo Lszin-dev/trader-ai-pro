@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 import numpy as np
 import pandas as pd
 import requests
+from reliability import validate_ohlc
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -135,8 +136,11 @@ class TwelveDataFeed:
         timestamps = pd.to_datetime(frame["datetime"], utc=True, errors="coerce")
         frame.index = pd.DatetimeIndex(timestamps, name="time")
         frame = frame[["open", "high", "low", "close"]]
-        frame = frame.dropna().sort_index()
-        frame = frame[~frame.index.duplicated(keep="last")]
+        frame = frame.sort_index()
+        try:
+            validate_ohlc(frame)
+        except ValueError as exc:
+            raise TwelveDataError(str(exc)) from exc
 
         if frame.empty or len(frame) < 30:
             raise TwelveDataError(f"{symbol}: candles válidos insuficientes.")

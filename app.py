@@ -8,6 +8,7 @@ from historico import obter_estatisticas
 from indicators import calculate_indicators
 from monitor_state import listar_estado_monitoramento
 from strategy import analyze_market
+from reliability import quote_is_current
 
 
 st.set_page_config(
@@ -205,8 +206,10 @@ def render_monitoramento():
                 signal_col.warning("Dados desatualizados")
             elif candidate in ("CALL", "PUT"):
                 revalidation_state = revalidation.get("state")
-                if revalidation.get("valid"):
-                    signal_col.warning(f"{candidate} • revalidado neste ciclo")
+                if quote_is_current(revalidation):
+                    signal_col.warning(f"{candidate} • cotação recente no provedor")
+                elif revalidation.get("valid"):
+                    signal_col.warning(f"{candidate} • cotação expirada")
                 elif revalidation_state == "persistent_candidate":
                     signal_col.warning(f"{candidate} • aguardando novo gatilho")
                 elif int(confirmations or 0) >= int(required or 2):
@@ -251,7 +254,7 @@ def render_monitoramento():
                     if checks:
                         st.write("Filtros", checks)
                     if revalidation:
-                        st.write("Última revalidação no provedor", revalidation)
+                        st.write("Última revalidação no provedor (registro histórico)", revalidation)
 
 
 render_monitoramento()

@@ -32,6 +32,8 @@ def calculate_indicators(data):
     rs = avg_gain / avg_loss.replace(0, float("nan"))
 
     data["RSI"] = 100 - (100 / (1 + rs))
+    data.loc[(avg_loss == 0) & (avg_gain > 0), "RSI"] = 100.0
+    data.loc[(avg_loss == 0) & (avg_gain == 0), "RSI"] = 50.0
 
     # MACD
     ema12 = data["close"].ewm(
