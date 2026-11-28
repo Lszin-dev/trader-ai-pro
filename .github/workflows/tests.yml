@@ -1,0 +1,25 @@
+name: TRADER AI PRO tests
+
+on:
+  push:
+    branches:
+      - development/automation-ai-foundation
+  pull_request:
+    branches:
+      - main
+      - development/automation-ai-foundation
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependency
+        run: python -m pip install --upgrade pip pandas
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
