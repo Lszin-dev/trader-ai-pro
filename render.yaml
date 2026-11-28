@@ -11,13 +11,19 @@ services:
         sync: false
       - key: SUPABASE_KEY
         sync: false
+      - key: DATA_PROVIDER
+        value: twelvedata
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+      - key: TWELVE_DATA_SYMBOLS
+        value: EUR/USD
+      - key: SCAN_INTERVAL_SECONDS
+        value: "120"
       - key: OTCHARTS_API_KEY
         sync: false
       - key: OTCHARTS_VENUE
         value: iq
       - key: OTCHARTS_MAX_SYMBOLS
         value: "5"
-      - key: SCAN_INTERVAL_SECONDS
-        value: "65"
       - key: LOG_LEVEL
         value: INFO
