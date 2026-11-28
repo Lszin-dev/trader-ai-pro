@@ -37,7 +37,7 @@ if ACTIVE_PROVIDER == "twelvedata" and not HAS_TWELVE_DATA:
     raise RuntimeError("DATA_PROVIDER=twelvedata exige TWELVE_DATA_API_KEY.")
 
 DEFAULT_INTERVAL = "120" if ACTIVE_PROVIDER == "twelvedata" else ("65" if ACTIVE_PROVIDER == "otcharts" else "60")
-SCAN_INTERVAL_SECONDS = max(60, int(os.getenv("SCAN_INTERVAL_SECONDS", DEFAULT_INTERVAL)))
+SCAN_INTERVAL_SECONDS = max(120 if ACTIVE_PROVIDER == "twelvedata" else 60, int(os.getenv("SCAN_INTERVAL_SECONDS", DEFAULT_INTERVAL)))
 OTCHARTS_VENUE = os.getenv("OTCHARTS_VENUE", "iq").strip().lower()
 OTCHARTS_MAX_SYMBOLS = max(1, int(os.getenv("OTCHARTS_MAX_SYMBOLS", "5")))
 OTCHARTS_SYMBOLS = [
@@ -49,7 +49,7 @@ TWELVE_DATA_SYMBOLS = [
     item.strip()
     for item in os.getenv("TWELVE_DATA_SYMBOLS", "EUR/USD").split(",")
     if item.strip()
-]
+][:1]  # Basic free quota: one symbol until account limits are verified.
 CATALOG_REFRESH_SECONDS = 900
 
 RUNNING = True
