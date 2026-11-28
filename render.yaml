@@ -11,7 +11,13 @@ services:
         sync: false
       - key: SUPABASE_KEY
         sync: false
+      - key: OTCHARTS_API_KEY
+        sync: false
+      - key: OTCHARTS_VENUE
+        value: iq
+      - key: OTCHARTS_MAX_SYMBOLS
+        value: "5"
+      - key: SCAN_INTERVAL_SECONDS
+        value: "65"
       - key: LOG_LEVEL
         value: INFO
-      - key: SCAN_INTERVAL_SECONDS
-        value: "60"
