@@ -1,17 +1,20 @@
-"""Twelve Data read-only Forex feed with conservative candle validation.
+"""Twelve Data read-only Forex feed with conservative validation.
 
-The API key is read only from TWELVE_DATA_API_KEY and sent in an HTTP header.
-This adapter supplies historical candles for analysis; it does NOT provide an
-execution-grade entry quote and must never be used to publish an entry signal.
+A chave fica somente em ``TWELVE_DATA_API_KEY`` e é enviada no cabeçalho HTTP.
+Candles são usados para análise técnica. O endpoint de exchange rate pode
+revalidar um candidato no provedor, mas não substitui a cotação da corretora.
 """
 from __future__ import annotations
 
+import math
 import os
 from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 BASE_URL = "https://api.twelvedata.com"
@@ -34,11 +37,28 @@ class TwelveDataFeed:
             raise TwelveDataError("Configure TWELVE_DATA_API_KEY no ambiente.")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.session = session or requests.Session()
+
+        if session is None:
+            self.session = requests.Session()
+            retry = Retry(
+                total=2,
+                connect=2,
+                read=2,
+                status=2,
+                backoff_factor=0.4,
+                status_forcelist=(500, 502, 503, 504),
+                allowed_methods=frozenset({"GET"}),
+                raise_on_status=False,
+            )
+            adapter = HTTPAdapter(max_retries=retry)
+            self.session.mount("https://", adapter)
+        else:
+            self.session = session
+
         self.session.headers.update({
             "Authorization": f"apikey {self.api_key}",
             "Accept": "application/json",
-            "User-Agent": "TRADER-AI-PRO/1.0",
+            "User-Agent": "TRADER-AI-PRO/2.0",
         })
 
     def _get(self, endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -49,7 +69,6 @@ class TwelveDataFeed:
                 timeout=self.timeout,
             )
         except requests.RequestException as exc:
-            # Do not include request URLs or headers: credentials must stay secret.
             raise TwelveDataError(
                 f"Falha de conexão com Twelve Data: {type(exc).__name__}."
             ) from exc
@@ -62,12 +81,14 @@ class TwelveDataFeed:
         if response.status_code >= 400:
             message = payload.get("message", "requisição recusada") if isinstance(payload, dict) else "requisição recusada"
             code = payload.get("code", response.status_code) if isinstance(payload, dict) else response.status_code
-            raise TwelveDataError(f"Twelve Data HTTP {response.status_code} (código {code}): {message}")
+            raise TwelveDataError(
+                f"Twelve Data HTTP {response.status_code} (código {code}): {message}"
+            )
 
         if not isinstance(payload, dict):
             raise TwelveDataError("Formato inesperado retornado pela Twelve Data.")
 
-        if payload.get("status") == "error" or payload.get("code"):
+        if payload.get("status") == "error":
             message = str(payload.get("message") or "erro informado pelo provedor")
             code = payload.get("code", "desconhecido")
             raise TwelveDataError(f"Twelve Data código {code}: {message}")
@@ -119,7 +140,7 @@ class TwelveDataFeed:
 
         if frame.empty or len(frame) < 30:
             raise TwelveDataError(f"{symbol}: candles válidos insuficientes.")
-        if not np.isfinite(frame.to_numpy(dtype=float)).all() or (frame[["open", "high", "low", "close"]] <= 0).any().any():
+        if not np.isfinite(frame.to_numpy(dtype=float)).all() or (frame <= 0).any().any():
             raise TwelveDataError(f"{symbol}: candle contém preço inválido.")
 
         reference_time = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
@@ -127,10 +148,8 @@ class TwelveDataFeed:
             raise ValueError("now precisa conter fuso horário.")
         reference_time = reference_time.tz_convert("UTC")
 
-        # The timestamp identifies the candle opening time. Exclude the active bar.
         candle_close_times = frame.index + pd.Timedelta(minutes=1)
         frame = frame.loc[candle_close_times <= reference_time]
-
         if len(frame) < 30:
             raise TwelveDataError(f"{symbol}: menos de 30 candles de 1 minuto fechados.")
 
@@ -141,15 +160,68 @@ class TwelveDataFeed:
                 f"{symbol}: último candle fechado desatualizado ({age:.1f}s; limite {max_age_seconds}s)."
             )
 
-        if not frame.tail(5).apply(lambda col: col.nunique()).any():
+        last_five = frame.tail(5)
+        if last_five["close"].nunique() == 1 and (last_five["high"] == last_five["low"]).all():
             raise TwelveDataError(f"{symbol}: feed sem variação de preço nos últimos candles.")
 
         return frame.astype(float)
 
+    def get_exchange_rate(
+        self,
+        symbol: str = "EUR/USD",
+        now: Optional[Any] = None,
+        max_age_seconds: int = 15,
+    ) -> Dict[str, Any]:
+        """Read a timestamped real-time Forex rate for provider-side revalidation."""
+        if not symbol or not isinstance(symbol, str) or "/" not in symbol:
+            raise ValueError("Símbolo Forex inválido. Use o formato EUR/USD.")
+        if max_age_seconds < 1:
+            raise ValueError("max_age_seconds deve ser positivo.")
+
+        payload = self._get("exchange_rate", {
+            "symbol": symbol,
+            "timezone": "UTC",
+            "format": "JSON",
+        })
+        try:
+            price = float(payload["rate"])
+            timestamp = int(payload["timestamp"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise TwelveDataError("Resposta de exchange rate sem preço/timestamp válidos.") from exc
+
+        if not math.isfinite(price) or price <= 0:
+            raise TwelveDataError("Exchange rate retornou preço inválido.")
+
+        quote_time = pd.to_datetime(timestamp, unit="s", utc=True)
+        reference_time = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
+        if reference_time.tzinfo is None:
+            raise ValueError("now precisa conter fuso horário.")
+        reference_time = reference_time.tz_convert("UTC")
+        age = (reference_time - quote_time).total_seconds()
+        if age < -2:
+            raise TwelveDataError("Exchange rate retornou timestamp no futuro.")
+        if age > max_age_seconds:
+            raise TwelveDataError(
+                f"Exchange rate desatualizado ({age:.1f}s; limite {max_age_seconds}s)."
+            )
+
+        return {
+            "symbol": str(payload.get("symbol") or symbol),
+            "price": price,
+            "timestamp": quote_time.isoformat(),
+            "age_seconds": round(age, 3),
+        }
+
     def get_usage(self) -> Dict[str, Any]:
-        """Return provider usage metadata for quota monitoring."""
+        """Return provider usage metadata; daily fields exist only on Basic."""
         payload = self._get("api_usage", {})
-        required = ("current_usage", "plan_limit", "daily_usage", "plan_daily_limit")
-        if any(key not in payload for key in required):
+        if "current_usage" not in payload or "plan_limit" not in payload:
             raise TwelveDataError("Resposta de consumo/cota inválida da Twelve Data.")
-        return payload
+        return {
+            "timestamp": payload.get("timestamp"),
+            "current_usage": payload.get("current_usage"),
+            "plan_limit": payload.get("plan_limit"),
+            "daily_usage": payload.get("daily_usage"),
+            "plan_daily_limit": payload.get("plan_daily_limit"),
+            "plan_category": payload.get("plan_category"),
+        }
