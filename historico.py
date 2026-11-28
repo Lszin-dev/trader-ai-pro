@@ -1,7 +1,6 @@
 
 import os
 import pandas as pd
-import streamlit as st
 from supabase import create_client
 
 
@@ -17,6 +16,7 @@ def obter_cliente():
     # No Streamlit, utiliza os Secrets como alternativa
     if not url or not chave:
         try:
+            import streamlit as st
             url = st.secrets["SUPABASE_URL"]
             chave = st.secrets["SUPABASE_KEY"]
         except Exception:

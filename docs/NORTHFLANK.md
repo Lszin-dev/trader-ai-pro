@@ -15,3 +15,5 @@ Variáveis de runtime (não de build):
 - SUPABASE_URL, SUPABASE_KEY (credencial de escrita), TWELVE_DATA_API_KEY: segredos de runtime, nunca no GitHub ou no Dockerfile.
 
 Após deploy, confira os logs e as linhas _WORKER e FOREX:EURUSD na tabela monitoramento_estado. No sábado, espera-se mercado fechado e heartbeat sem consumo da Twelve Data. Em mercado aberto, confira a atualização do candle e a resposta do provedor. O Streamlit deve usar a mesma base e a branch atualizada. Nenhum deploy ou cobrança foi realizado pelo commit.
+
+A imagem do worker não instala Streamlit. A interface continua em hospedagem separada; o import de Yahoo Finance é adiado até uso efetivo. O plano gratuito de 256 MB precisa de teste real de memória.

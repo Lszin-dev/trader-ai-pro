@@ -1,5 +1,4 @@
 
-import yfinance as yf
 import pandas as pd
 
 
@@ -14,6 +13,7 @@ ATIVOS = {
 
 
 def get_market_data(asset, minutes):
+    import yfinance as yf
 
     if asset not in ATIVOS:
         raise ValueError("Ativo não reconhecido ou indisponível.")
