@@ -18,6 +18,7 @@ from data_feed import ATIVOS, get_market_data
 from historico import avaliar_sinais_pendentes
 from indicators import calculate_indicators
 from strategy import analyze_market
+from monitor_state import salvar_estado_monitoramento
 
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -95,6 +96,25 @@ def _get_otcharts_symbols(feed) -> List[str]:
     return list(_SYMBOL_CACHE)
 
 
+def _persist_state(provider: str, result: Dict[str, object], data_1m=None) -> None:
+    """Publish worker observation state; never writes trading history."""
+    try:
+        latest_data = None
+        if data_1m is not None and not data_1m.empty:
+            latest_data = data_1m.index[-1] + pd.Timedelta(minutes=1)
+        salvar_estado_monitoramento(
+            provider=provider,
+            ativo=str(result.get("asset", "UNKNOWN")),
+            status=str(result.get("status", "error")),
+            sinal_candidato=str(result.get("signal", "AGUARDAR")),
+            motivo=str(result.get("reason", "")),
+            ultimo_dado=latest_data,
+            detalhes={"modo": "OBSERVACAO"},
+        )
+    except Exception as exc:
+        logger.error("Não foi possível atualizar o estado compartilhado do monitor: %s", exc)
+
+
 def _analyze_frames(asset_key: str, data_1m: pd.DataFrame) -> Dict[str, object]:
     data_5m = _resample_5m(data_1m)
     if len(data_5m) < 30:
@@ -123,10 +143,13 @@ def scan_otcharts_symbol(feed, symbol: str) -> Dict[str, object]:
         )
         outcome = _analyze_frames(asset_key, data_1m)
         outcome["evaluated"] = avaliar_sinais_pendentes(asset_key, data_1m)
+        _persist_state("otcharts", outcome, data_1m)
         return outcome
     except Exception as exc:
         logger.warning("%s: monitoramento indisponível: %s", asset_key, exc)
-        return {"asset": asset_key, "status": "error", "signal": "AGUARDAR", "evaluated": 0, "reason": str(exc)}
+        outcome = {"asset": asset_key, "status": "error", "signal": "AGUARDAR", "evaluated": 0, "reason": str(exc)}
+        _persist_state("otcharts", outcome)
+        return outcome
 
 
 def scan_twelvedata_symbol(feed, symbol: str) -> Dict[str, object]:
@@ -136,10 +159,14 @@ def scan_twelvedata_symbol(feed, symbol: str) -> Dict[str, object]:
             symbol=symbol, interval="1min", outputsize=250, max_age_seconds=150
         )
         # Do not evaluate legacy history with a different price source.
-        return _analyze_frames(asset_key, data_1m)
+        outcome = _analyze_frames(asset_key, data_1m)
+        _persist_state("twelvedata", outcome, data_1m)
+        return outcome
     except Exception as exc:
         logger.warning("%s: monitoramento indisponível: %s", asset_key, exc)
-        return {"asset": asset_key, "status": "error", "signal": "AGUARDAR", "reason": str(exc)}
+        outcome = {"asset": asset_key, "status": "error", "signal": "AGUARDAR", "reason": str(exc)}
+        _persist_state("twelvedata", outcome)
+        return outcome
 
 
 def scan_yahoo_asset(asset: str) -> Dict[str, object]:
@@ -153,14 +180,23 @@ def scan_yahoo_asset(asset: str) -> Dict[str, object]:
             logger.warning("%s candidato=%s; NÃO PUBLICADO: Yahoo não é cotação executável da plataforma. %s", asset, signal_value, result.get("reason", ""))
         else:
             logger.info("%s: sem confirmação. %s", asset, result.get("reason", ""))
-        return {"asset": asset, "status": "observed", "signal": signal_value, "evaluated": evaluated, "reason": result.get("reason", "")}
+        outcome = {"asset": asset, "status": "observed", "signal": signal_value, "evaluated": evaluated, "reason": result.get("reason", "")}
+        _persist_state("yahoo", outcome, data_1m)
+        return outcome
     except Exception as exc:
         logger.warning("%s: monitoramento indisponível: %s", asset, exc)
-        return {"asset": asset, "status": "error", "signal": "AGUARDAR", "evaluated": 0, "reason": str(exc)}
+        outcome = {"asset": asset, "status": "error", "signal": "AGUARDAR", "evaluated": 0, "reason": str(exc)}
+        _persist_state("yahoo", outcome)
+        return outcome
 
 
 def run_cycle() -> Dict[str, int]:
     totals = {"assets": 0, "observed": 0, "errors": 0, "evaluated": 0}
+    _persist_state(
+        ACTIVE_PROVIDER,
+        {"asset": "_WORKER", "status": "running", "signal": "AGUARDAR",
+         "reason": "Ciclo de monitoramento iniciado."},
+    )
     if ACTIVE_PROVIDER == "otcharts":
         from otcharts_feed import OTChartsFeed
         feed = OTChartsFeed()
@@ -190,6 +226,11 @@ def run_cycle() -> Dict[str, int]:
             totals["evaluated"] += int(result.get("evaluated", 0))
             totals["observed" if result["status"] == "observed" else "errors"] += 1
     logger.info("Ciclo concluído: %s", totals)
+    _persist_state(
+        ACTIVE_PROVIDER,
+        {"asset": "_WORKER", "status": "observed", "signal": "AGUARDAR",
+         "reason": f"Ciclo concluído: {totals}"},
+    )
     return totals
 
 
