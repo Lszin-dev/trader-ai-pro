@@ -24,7 +24,9 @@ services:
       - key: REVALIDATION_COOLDOWN_SECONDS
         value: "600"
       - key: USAGE_CHECK_INTERVAL_SECONDS
-        value: "7200"
+        value: "900"
+      - key: DAILY_CREDIT_BUDGET
+        value: "750"
       - key: OTCHARTS_API_KEY
         sync: false
       - key: OTCHARTS_VENUE

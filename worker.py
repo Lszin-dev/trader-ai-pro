@@ -22,6 +22,7 @@ from market_guard import forex_market_status
 from monitor_state import salvar_estado_monitoramento
 from strategy import analyze_market
 from reliability import advance_confirmation, closed_five_minute, validate_ohlc
+from quota_budget import DailyBudget
 
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -44,7 +45,8 @@ DEFAULT_INTERVAL = "120" if ACTIVE_PROVIDER == "twelvedata" else ("65" if ACTIVE
 SCAN_INTERVAL_SECONDS = max(120 if ACTIVE_PROVIDER == "twelvedata" else 60, int(os.getenv("SCAN_INTERVAL_SECONDS", DEFAULT_INTERVAL)))
 MIN_CANDIDATE_CONFIRMATIONS = max(2, int(os.getenv("MIN_CANDIDATE_CONFIRMATIONS", "2")))
 REVALIDATION_COOLDOWN_SECONDS = max(300, int(os.getenv("REVALIDATION_COOLDOWN_SECONDS", "600")))
-USAGE_CHECK_INTERVAL_SECONDS = max(3600, int(os.getenv("USAGE_CHECK_INTERVAL_SECONDS", "7200")))
+USAGE_CHECK_INTERVAL_SECONDS = max(900, int(os.getenv("USAGE_CHECK_INTERVAL_SECONDS", "900")))
+_DAILY_BUDGET = DailyBudget(min(750, int(os.getenv("DAILY_CREDIT_BUDGET", "750"))))
 OTCHARTS_VENUE = os.getenv("OTCHARTS_VENUE", "iq").strip().lower()
 OTCHARTS_MAX_SYMBOLS = max(1, int(os.getenv("OTCHARTS_MAX_SYMBOLS", "5")))
 OTCHARTS_SYMBOLS = [item.strip() for item in os.getenv("OTCHARTS_SYMBOLS", "").split(",") if item.strip()]
@@ -62,6 +64,7 @@ _CANDIDATE_STATE: Dict[str, Dict[str, object]] = {}
 _REVALIDATION_CACHE: Dict[str, Dict[str, object]] = {}
 _USAGE_SNAPSHOT: Dict[str, object] = {}
 _USAGE_CHECKED_AT = 0.0
+_USAGE_DAY = None
 
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -175,6 +178,8 @@ def _revalidate_twelvedata(feed, symbol: str, asset_key: str) -> Dict[str, objec
         }
 
     checked_at = datetime.now(timezone.utc).isoformat()
+    if not _DAILY_BUDGET.reserve():
+        return {"valid": False, "state": "quota_guard", "reason": "Orçamento diário de leituras atingido.", "broker_confirmed": False}
     try:
         quote = feed.get_exchange_rate(symbol=symbol, max_age_seconds=15)
         validation = validate_entry_quote(
@@ -208,13 +213,21 @@ def _revalidate_twelvedata(feed, symbol: str, asset_key: str) -> Dict[str, objec
 
 
 def _refresh_usage(feed) -> Dict[str, object]:
-    global _USAGE_SNAPSHOT, _USAGE_CHECKED_AT
+    global _USAGE_SNAPSHOT, _USAGE_CHECKED_AT, _USAGE_DAY
     now_mono = time.monotonic()
-    if _USAGE_SNAPSHOT and now_mono - _USAGE_CHECKED_AT < USAGE_CHECK_INTERVAL_SECONDS:
+    day = datetime.now(timezone.utc).date()
+    if day != _USAGE_DAY:
+        _USAGE_SNAPSHOT = {}
+        _USAGE_CHECKED_AT = 0.0
+        _USAGE_DAY = day
+    if _USAGE_CHECKED_AT and now_mono - _USAGE_CHECKED_AT < USAGE_CHECK_INTERVAL_SECONDS:
+        return dict(_USAGE_SNAPSHOT)
+    _USAGE_CHECKED_AT = now_mono
+    if not _DAILY_BUDGET.reserve():
         return dict(_USAGE_SNAPSHOT)
     try:
         _USAGE_SNAPSHOT = feed.get_usage()
-        _USAGE_CHECKED_AT = now_mono
+        _DAILY_BUDGET.sync(_USAGE_SNAPSHOT)
     except Exception as exc:
         logger.warning("Não foi possível consultar cota Twelve Data: %s", exc)
     return dict(_USAGE_SNAPSHOT)
@@ -252,6 +265,11 @@ def scan_otcharts_symbol(feed, symbol: str) -> Dict[str, object]:
 def scan_twelvedata_symbol(feed, symbol: str) -> Dict[str, object]:
     asset_key = f"FOREX:{symbol.replace('/', '')}"
     try:
+        if not _DAILY_BUDGET.reserve():
+            _update_candidate_streak(asset_key, "AGUARDAR")
+            outcome = {"asset": asset_key, "status": "observed", "signal": "AGUARDAR", "reason": "Orçamento diário de leituras atingido.", "details": {"quota_guard": True}}
+            _persist_state("twelvedata", outcome)
+            return outcome
         data_1m = feed.get_candles(symbol=symbol, interval="1min", outputsize=250, max_age_seconds=150)
         outcome = _analyze_frames(asset_key, data_1m)
         streak, advanced = _update_candidate_streak(asset_key, outcome["signal"], data_1m.index[-1])
@@ -389,7 +407,7 @@ def run_cycle() -> Dict[str, int]:
 
     except Exception as exc:
         duration = round(time.monotonic() - started, 2)
-        worker_details.update({"cycle_duration_seconds": duration, "totals": totals})
+        worker_details.update({"cycle_duration_seconds": duration, "totals": totals, "credit_budget": _DAILY_BUDGET.snapshot() if ACTIVE_PROVIDER == "twelvedata" else {}})
         _persist_state(ACTIVE_PROVIDER, {"asset": "_WORKER", "status": "error", "signal": "AGUARDAR", "reason": f"Falha no ciclo: {exc}", "details": worker_details})
         raise
 

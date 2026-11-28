@@ -44,8 +44,8 @@ class TwelveDataFeed:
             retry = Retry(
                 total=2,
                 connect=2,
-                read=2,
-                status=2,
+                read=0,
+                status=0,
                 backoff_factor=0.4,
                 status_forcelist=(500, 502, 503, 504),
                 allowed_methods=frozenset({"GET"}),
@@ -83,7 +83,7 @@ class TwelveDataFeed:
             message = payload.get("message", "requisição recusada") if isinstance(payload, dict) else "requisição recusada"
             code = payload.get("code", response.status_code) if isinstance(payload, dict) else response.status_code
             raise TwelveDataError(
-                f"Twelve Data HTTP {response.status_code} (código {code}): {message}"
+                f"Twelve Data HTTP {response.status_code} (código {code}): {str(message).replace(self.api_key, '[oculto]')}"
             )
 
         if not isinstance(payload, dict):
@@ -92,7 +92,7 @@ class TwelveDataFeed:
         if payload.get("status") == "error":
             message = str(payload.get("message") or "erro informado pelo provedor")
             code = payload.get("code", "desconhecido")
-            raise TwelveDataError(f"Twelve Data código {code}: {message}")
+            raise TwelveDataError(f"Twelve Data código {code}: {message.replace(self.api_key, '[oculto]')}")
 
         return payload
 

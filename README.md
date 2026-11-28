@@ -36,7 +36,8 @@ Controles principais:
 - `SCAN_INTERVAL_SECONDS=120`
 - `MIN_CANDIDATE_CONFIRMATIONS=2`
 - `REVALIDATION_COOLDOWN_SECONDS=600`
-- `USAGE_CHECK_INTERVAL_SECONDS=7200`
+- `USAGE_CHECK_INTERVAL_SECONDS=900`
+- `DAILY_CREDIT_BUDGET=750` (estimativa conservadora por processo, reconciliada com o uso informado pelo provedor; não garante o limite de toda a conta se houver outros consumidores ou reinícios)
 
 Nunca grave chaves no código ou no GitHub.
 

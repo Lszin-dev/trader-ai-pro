@@ -31,3 +31,12 @@ Atualizado em 28/11/2026.
 O código está preparado para receber no ambiente do worker `SUPABASE_URL`, `SUPABASE_KEY` e `TWELVE_DATA_API_KEY`. Depois do deploy, a validação deve ser feita em mercado Forex aberto, começando por EUR/USD e observação/paper trading.
 
 A configuração `render.yaml` permanece com `autoDeploy: false`; nenhum serviço externo é contratado ou ativado pelo código do repositório.
+
+## Revisão de confiabilidade adicional
+
+- Confirmações exigem candles distintos e dentro do intervalo esperado; dados OHLC inconsistentes são rejeitados.
+- RSI trata corretamente tendências sem perdas e séries sem movimento.
+- Revalidação expira na interface conforme o timestamp da cotação, não o horário do último ciclo.
+- Guard local de orçamento diário (750 créditos estimados por processo, sincronizado com snapshots da API; não é uma garantia de uso global).
+- Worker em observação não atualiza nem insere histórico legado, inclusive nas fontes alternativas.
+- Replay offline em `backtest.py`, com candles fechados, atraso hipotético e avaliações 1M/5M. Ainda não há avaliação ao vivo dos novos candidatos, coleta de dataset real, backup recorrente ou modelo ML treinado.

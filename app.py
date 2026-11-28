@@ -159,10 +159,13 @@ def render_monitoramento():
         if modo_detalhado:
             usage = worker_details.get("api_usage") or {}
             cycle_duration = worker_details.get("cycle_duration_seconds")
-            if usage or cycle_duration is not None:
+            budget = worker_details.get("credit_budget") or {}
+            if usage or budget or cycle_duration is not None:
                 with st.expander("Detalhes do motor", expanded=False):
                     if cycle_duration is not None:
                         st.write(f"Duração do último ciclo: **{cycle_duration}s**")
+                    if budget:
+                        st.write("Orçamento local estimado de créditos", budget)
                     if usage:
                         st.write(
                             "Uso da API: ",
