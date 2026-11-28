@@ -19,6 +19,12 @@ services:
         value: EUR/USD
       - key: SCAN_INTERVAL_SECONDS
         value: "120"
+      - key: MIN_CANDIDATE_CONFIRMATIONS
+        value: "2"
+      - key: REVALIDATION_COOLDOWN_SECONDS
+        value: "600"
+      - key: USAGE_CHECK_INTERVAL_SECONDS
+        value: "7200"
       - key: OTCHARTS_API_KEY
         sync: false
       - key: OTCHARTS_VENUE
