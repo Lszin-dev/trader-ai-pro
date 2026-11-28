@@ -1,40 +1,55 @@
+import json
+
 import pandas as pd
 import streamlit as st
 
 from data_feed import get_market_data
-from indicators import calculate_indicators
-from strategy import analyze_market
 from historico import obter_estatisticas
+from indicators import calculate_indicators
 from monitor_state import listar_estado_monitoramento
+from strategy import analyze_market
 
 
 st.set_page_config(
     page_title="TRADER AI PRO",
     page_icon="📈",
     layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+st.markdown(
+    """
+    <style>
+    .block-container {max-width: 1180px; padding-top: 1.4rem; padding-bottom: 3rem;}
+    [data-testid="stMetricValue"] {font-size: 1.45rem;}
+    .tap-note {opacity: .75; font-size: .9rem;}
+    @media (max-width: 760px) {
+        .block-container {padding-left: .85rem; padding-right: .85rem; padding-top: .75rem;}
+        h1 {font-size: 1.85rem !important;}
+        h2 {font-size: 1.35rem !important;}
+        [data-testid="stMetricValue"] {font-size: 1.2rem;}
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 st.title("📈 TRADER AI PRO")
-st.subheader("Análise técnica inteligente")
+st.caption("Motor experimental de monitoramento técnico • foco em confirmação, rastreabilidade e leitura simples")
+
+modo_detalhado = st.toggle(
+    "Modo detalhado",
+    value=False,
+    help="Mostra score, métricas, confirmações, revalidação e gráfico recente.",
+)
+
 st.info(
-    "O gráfico de 5 minutos confirma a tendência. "
-    "O gráfico de 1 minuto procura o momento de entrada. "
-    "Somente sinais com cotação ao vivo revalidada poderão ser publicados."
+    "O 5M confirma a tendência e o 1M procura o momento. "
+    "CALL/PUT exibidos aqui são candidatos técnicos; só uma cotação da corretora no instante da entrada pode validar execução real."
 )
 
 
-# ==========================================
-# MONITORAMENTO COMPARTILHADO PC + CELULAR
-# ==========================================
-
-st.divider()
-st.header("📡 Monitoramento automático")
-st.caption(
-    "Este painel consulta o estado compartilhado no Supabase. "
-    "A atualização visual ocorre a cada 15 segundos; isso não inicia o worker."
-)
-
-def formatar_horario(value):
+def _formatar_horario(value):
     if not value:
         return "Sem registro"
     try:
@@ -47,6 +62,46 @@ def formatar_horario(value):
         return str(value)
 
 
+def _details(row):
+    value = row.get("detalhes") or {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _recent_chart(details):
+    points = details.get("recent_prices") or []
+    if not isinstance(points, list) or len(points) < 2:
+        return None
+    try:
+        frame = pd.DataFrame(points)
+        frame["time"] = pd.to_datetime(frame["time"], utc=True, errors="coerce")
+        frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+        frame = frame.dropna().set_index("time").sort_index()
+        return frame[["close"]] if len(frame) >= 2 else None
+    except Exception:
+        return None
+
+
+def _score_label(score):
+    try:
+        value = float(score)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{value:.0f}/100"
+
+
+st.divider()
+st.header("📡 Monitoramento automático")
+st.caption("Atualiza esta área a cada 15 segundos enquanto a página estiver aberta. O worker roda separadamente.")
+
+
 @st.fragment(run_every="15s")
 def render_monitoramento():
     try:
@@ -54,16 +109,12 @@ def render_monitoramento():
     except Exception as error:
         st.error(
             "Não foi possível consultar o monitoramento compartilhado. "
-            "Verifique se a tabela monitoramento_estado foi criada no Supabase "
-            f"e se as permissões estão configuradas. Detalhe: {error}"
+            f"Detalhe: {error}"
         )
         return
 
     if not rows:
-        st.warning(
-            "Ainda não há ciclos registrados. O worker precisa estar configurado "
-            "e em execução para preencher este painel."
-        )
+        st.warning("A tabela existe, mas ainda não recebeu ciclos do worker.")
         return
 
     worker_rows = [row for row in rows if row.get("ativo") == "_WORKER"]
@@ -71,81 +122,145 @@ def render_monitoramento():
 
     if worker_rows:
         worker = worker_rows[0]
+        worker_details = _details(worker)
         updated = pd.to_datetime(worker.get("atualizado_em"), utc=True, errors="coerce")
         age_seconds = (
             (pd.Timestamp.now(tz="UTC") - updated).total_seconds()
-            if not pd.isna(updated) else None
+            if not pd.isna(updated)
+            else None
         )
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Fonte do motor", str(worker.get("provider", "—")).upper())
-        col2.metric("Último ciclo", formatar_horario(worker.get("ultimo_ciclo")))
+        market = worker_details.get("market") or {}
+        market_open = market.get("open")
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Fonte", str(worker.get("provider", "—")).upper())
+        col2.metric("Último ciclo", _formatar_horario(worker.get("ultimo_ciclo")))
         if age_seconds is None:
-            col3.metric("Saúde do motor", "Indeterminada")
+            health = "Indeterminada"
         elif age_seconds > 300:
-            col3.metric("Saúde do motor", "Desatualizado")
-            st.error(
-                "O último ciclo do worker tem mais de 5 minutos. "
-                "Não considere os dados atuais."
-            )
+            health = "Desatualizado"
+        elif worker.get("status") == "error":
+            health = "Erro"
         elif worker.get("status") == "running":
-            col3.metric("Saúde do motor", "Executando ciclo")
+            health = "Executando"
         else:
-            col3.metric("Saúde do motor", "Atualizado")
-        if worker.get("motivo"):
-            st.caption(worker["motivo"])
+            health = "Atualizado"
+        col3.metric("Motor", health)
+        col4.metric("Forex", "Aberto" if market_open is True else ("Fechado" if market_open is False else "—"))
+
+        if age_seconds is not None and age_seconds > 300:
+            st.error("O worker não atualiza há mais de 5 minutos. Não use o estado abaixo como atual.")
+        elif worker.get("status") == "error":
+            st.error(worker.get("motivo") or "O último ciclo terminou com erro.")
+        elif market_open is False:
+            st.info("Mercado Forex fechado no fim de semana. O worker preserva a cota da API e aguarda a reabertura.")
+
+        if modo_detalhado:
+            usage = worker_details.get("api_usage") or {}
+            cycle_duration = worker_details.get("cycle_duration_seconds")
+            if usage or cycle_duration is not None:
+                with st.expander("Detalhes do motor", expanded=False):
+                    if cycle_duration is not None:
+                        st.write(f"Duração do último ciclo: **{cycle_duration}s**")
+                    if usage:
+                        st.write(
+                            "Uso da API: ",
+                            {
+                                "plano": usage.get("plan_category"),
+                                "uso_minuto": usage.get("current_usage"),
+                                "limite_minuto": usage.get("plan_limit"),
+                                "uso_dia": usage.get("daily_usage"),
+                                "limite_dia": usage.get("plan_daily_limit"),
+                            },
+                        )
 
     if not asset_rows:
-        st.info("O worker ainda não publicou o estado de nenhum ativo.")
+        st.info("O worker ainda não publicou nenhum ativo.")
         return
 
     for row in asset_rows:
+        details = _details(row)
+        status = row.get("status", "error")
+        candidate = row.get("sinal_candidato", "AGUARDAR")
+        score = details.get("technical_score", 0)
+        confirmations = details.get("candidate_confirmations", 0)
+        required = details.get("required_confirmations", 2)
+        revalidation = details.get("provider_revalidation") or {}
+        updated = pd.to_datetime(row.get("atualizado_em"), utc=True, errors="coerce")
+        age_seconds = (
+            (pd.Timestamp.now(tz="UTC") - updated).total_seconds()
+            if not pd.isna(updated)
+            else None
+        )
+        stale = age_seconds is None or age_seconds > 300
+
         with st.container(border=True):
-            title_col, status_col = st.columns([2, 1])
-            title_col.markdown(f"**{row.get('ativo', 'Ativo desconhecido')}**")
+            title_col, signal_col, score_col = st.columns([2.2, 1.4, 1])
+            title_col.markdown(f"### {row.get('ativo', 'Ativo desconhecido')}")
             title_col.caption(f"Fonte: {str(row.get('provider', '—')).upper()}")
-            status = row.get("status", "error")
-            candidate = row.get("sinal_candidato", "AGUARDAR")
-            updated = pd.to_datetime(row.get("atualizado_em"), utc=True, errors="coerce")
-            age_seconds = (
-                (pd.Timestamp.now(tz="UTC") - updated).total_seconds()
-                if not pd.isna(updated) else None
-            )
-            stale = age_seconds is None or age_seconds > 300
 
             if status == "error":
-                status_col.error("Feed indisponível")
+                signal_col.error("Feed indisponível")
             elif stale:
-                status_col.warning("Dados desatualizados")
+                signal_col.warning("Dados desatualizados")
             elif candidate in ("CALL", "PUT"):
-                status_col.warning(f"Candidato {candidate} — não confirmado")
+                revalidation_state = revalidation.get("state")
+                if revalidation.get("valid"):
+                    signal_col.warning(f"{candidate} • revalidado neste ciclo")
+                elif revalidation_state == "persistent_candidate":
+                    signal_col.warning(f"{candidate} • aguardando novo gatilho")
+                elif int(confirmations or 0) >= int(required or 2):
+                    signal_col.warning(f"{candidate} • sem revalidação atual")
+                else:
+                    signal_col.warning(f"{candidate} • confirmando {confirmations}/{required}")
             else:
-                status_col.success("Aguardar")
+                signal_col.success("AGUARDAR")
 
+            score_col.metric("Score técnico", _score_label(score))
+            st.caption("Score técnico mede confluência das regras do sistema; não é probabilidade de acerto.")
+            st.write(row.get("motivo") or "Sem detalhe adicional.")
             st.caption(
-                f"Último ciclo: {formatar_horario(row.get('ultimo_ciclo'))} | "
-                f"Último candle: {formatar_horario(row.get('ultimo_dado'))}"
+                f"Ciclo: {_formatar_horario(row.get('ultimo_ciclo'))} • "
+                f"último candle: {_formatar_horario(row.get('ultimo_dado'))}"
             )
-            if row.get("motivo"):
-                st.write(row["motivo"])
+
             if candidate in ("CALL", "PUT"):
                 st.warning(
-                    "Confluência técnica detectada, mas isto NÃO é um sinal de entrada. "
-                    "Falta cotação ao vivo e revalidação obrigatória."
+                    "Candidato técnico detectado. Mesmo com revalidação na Twelve Data, "
+                    "a entrada real continua bloqueada até conferir a cotação da corretora no instante da operação."
                 )
+
+            if modo_detalhado:
+                chart = _recent_chart(details)
+                if chart is not None:
+                    st.markdown("**Últimos preços recebidos pelo worker**")
+                    st.line_chart(chart, height=220)
+
+                d1, d2, d3, d4 = st.columns(4)
+                d1.metric("Qualidade", str(details.get("quality", "—")))
+                d2.metric("Confirmações", f"{confirmations}/{required}")
+                lag = details.get("feed_lag_seconds")
+                d3.metric("Atraso do feed", f"{lag}s" if lag is not None else "—")
+                d4.metric("Último preço", str(details.get("last_close", "—")))
+
+                metrics = details.get("metrics") or {}
+                checks = details.get("checks") or {}
+                with st.expander("Indicadores e filtros", expanded=False):
+                    if metrics:
+                        st.write("Métricas", metrics)
+                    if checks:
+                        st.write("Filtros", checks)
+                    if revalidation:
+                        st.write("Última revalidação no provedor", revalidation)
 
 
 render_monitoramento()
 
 
-# ==========================================
-# DESEMPENHO HISTÓRICO
-# ==========================================
-
 st.divider()
-st.header("📊 Desempenho dos sinais")
+st.header("📊 Desempenho histórico")
 st.caption(
-    "Estatísticas da tabela histórica existente. A integração Forex nova "
-    "não insere nem altera registros históricos nesta fase."
+    "Esta seção usa a base histórica já existente. O novo monitor Forex ainda não mistura candidatos da Twelve Data com esse histórico."
 )
 
 
@@ -173,17 +288,9 @@ except Exception as erro:
     st.warning(f"Não foi possível carregar as estatísticas: {erro}")
 
 
-# ==========================================
-# ANÁLISE MANUAL DE REFERÊNCIA (YAHOO)
-# ==========================================
-
 st.divider()
-st.header("🔎 Análise manual de referência")
-st.caption(
-    "Esta área usa Yahoo Finance apenas para consulta técnica. "
-    "Não publica sinais, não registra entradas e não substitui o monitoramento "
-    "Forex da Twelve Data nem a cotação da corretora."
-)
+st.header("🔎 Consulta manual de referência")
+st.caption("Yahoo Finance é usado somente como referência técnica; não publica nem registra uma entrada.")
 
 ativos = {
     "EUR/USD": "EURUSD",
@@ -197,47 +304,28 @@ ativos = {
 nome_ativo = st.selectbox("Selecione o ativo", list(ativos.keys()))
 asset = ativos[nome_ativo]
 
-if st.button("ANALISAR MERCADO", type="primary"):
+if st.button("ANALISAR MERCADO", type="primary", use_container_width=True):
     try:
-        with st.spinner(f"Analisando {nome_ativo} em 1M e 5M via Yahoo Finance..."):
-            data_1m = get_market_data(asset, 1)
-            data_5m = get_market_data(asset, 5)
-            data_1m = calculate_indicators(data_1m)
-            data_5m = calculate_indicators(data_5m)
+        with st.spinner(f"Analisando {nome_ativo} em 1M e 5M..."):
+            data_1m = calculate_indicators(get_market_data(asset, 1))
+            data_5m = calculate_indicators(get_market_data(asset, 5))
             result = analyze_market(data_1m, data_5m)
 
         st.subheader(f"Resultado técnico: {nome_ativo}")
-        if result["signal"] in ("CALL", "PUT"):
-            st.warning(
-                f"Confluência técnica {result['signal']} detectada. "
-                "Não é sinal confirmado e não deve ser usado como entrada."
-            )
-        else:
-            st.info("AGUARDAR — sem confirmação conjunta.")
-        st.write("**Motivo:**", result["reason"])
+        r1, r2 = st.columns(2)
+        r1.metric("Leitura", result["signal"])
+        r2.metric("Score técnico", _score_label(result.get("score")))
+        st.write(result["reason"])
+        st.caption("Esse score não representa chance estatística de vitória.")
 
-        st.divider()
-        st.subheader("Indicadores técnicos")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("### Gráfico de 1 minuto")
-            last_1m = data_1m.iloc[-1]
-            st.metric("RSI 1M", round(last_1m["RSI"], 2))
-            st.metric("EMA 9", round(last_1m["EMA9"], 5))
-            st.metric("EMA 21", round(last_1m["EMA21"], 5))
-        with col2:
-            st.markdown("### Gráfico de 5 minutos")
-            last_5m = data_5m.iloc[-1]
-            st.metric("RSI 5M", round(last_5m["RSI"], 2))
-            st.metric("EMA 9", round(last_5m["EMA9"], 5))
-            st.metric("EMA 21", round(last_5m["EMA21"], 5))
-
-        st.divider()
-        st.subheader("Histórico de preços")
-        st.markdown(f"#### {nome_ativo} — 1 minuto")
-        st.line_chart(data_1m["close"])
-        st.markdown(f"#### {nome_ativo} — 5 minutos")
-        st.line_chart(data_5m["close"])
+        if modo_detalhado:
+            with st.expander("Detalhamento técnico", expanded=True):
+                st.write("Métricas", result.get("metrics", {}))
+                st.write("Filtros", result.get("checks", {}))
+            st.markdown(f"#### {nome_ativo} — 1 minuto")
+            st.line_chart(data_1m["close"])
+            st.markdown(f"#### {nome_ativo} — 5 minutos")
+            st.line_chart(data_5m["close"])
 
     except Exception as error:
         st.error(f"Não foi possível realizar a análise: {error}")
@@ -245,6 +333,6 @@ if st.button("ANALISAR MERCADO", type="primary"):
 
 st.divider()
 st.caption(
-    "TRADER AI PRO | Sistema experimental de análise. "
+    "TRADER AI PRO • sistema experimental de análise e monitoramento. "
     "Não executa operações e não garante resultados financeiros."
 )
