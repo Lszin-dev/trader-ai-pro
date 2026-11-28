@@ -48,3 +48,6 @@ A configuração `render.yaml` permanece com `autoDeploy: false`; nenhum serviç
 - Avaliação usa somente aberturas exatas de candles encerrados da mesma fonte; falta de dados não vira erro/acerto. Sem histórico suficiente após tolerância, marca SEM_DADOS. Não equivale a uma operação real nem usa preços da IQ Option.
 - `RESEARCH_ENABLED=true` somente após migração e confirmação de permissão de escrita no worker. O painel consulta contagens exatas com credencial de serviço no servidor, sem expor a chave.
 - Machine learning, backup recorrente e testes reais de conexão ainda pendentes; não há dataset de mercado coletado por esta alteração.
+
+- Exportador `dataset_export.py` prepara amostras locais por fonte/ativo/versão, com corte cronológico e expurgo de horizontes que cruzam o início do teste. Nenhum modelo treinado ou dataset real exportado nesta etapa. O CSV é privado e ignorado pelo Git.
+- A migração também exige que a abertura hipotética seja posterior ao registro no servidor, para evitar cadastrar entradas retroativas.

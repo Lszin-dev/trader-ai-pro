@@ -293,7 +293,8 @@ def scan_twelvedata_symbol(feed, symbol: str) -> Dict[str, object]:
                 if revalidation.get("valid") and RESEARCH_ENABLED:
                     try:
                         observed = datetime.now(timezone.utc)
-                        if validate_entry_quote(revalidation["price"], revalidation["quote_timestamp"], now=observed, max_age_seconds=15)["valid"]:
+                        if (validate_entry_quote(revalidation["price"], revalidation["quote_timestamp"], now=observed, max_age_seconds=15)["valid"]
+                            and 0 <= (pd.Timestamp(observed) - (data_1m.index[-1] + pd.Timedelta(minutes=1))).total_seconds() <= 150):
                             rows = create_trials("twelvedata", asset_key, data_1m.index[-1], observed, outcome["signal"],
                                 outcome["details"]["technical_score"], {"metrics": outcome["details"]["metrics"], "checks": outcome["details"]["checks"], "confirmations": streak})
                             record_trials(rows)

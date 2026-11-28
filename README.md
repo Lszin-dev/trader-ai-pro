@@ -58,3 +58,9 @@ Twelve Data fornece mercado Forex agregado; não é a cotação oficial da IQ Op
 `python backtest.py dados.csv --output replay_results.csv`
 
 CSV com colunas time,open,high,low,close (time = abertura do candle 1M em UTC). O replay usa somente candles encerrados na decisão, entrada hipotética com atraso de um minuto, expirações 1 e 5 minutos, e rejeita lacunas. Não reproduz latência real, cotação da corretora, payout ou slippage; não comprova lucratividade. Valide com dados fora da amostra e registre a origem do CSV. Nenhum dado real foi coletado automaticamente por esse comando.
+
+## Pesquisa prospectiva privada
+
+Execute `supabase/migrations/20261128_pesquisa_sinais.sql` no SQL Editor e, no worker, configure `RESEARCH_ENABLED=true` após validar as permissões. Os resultados simulados são gravados separadamente do histórico legado. O painel pode mostrar as contagens quando a credencial do servidor tiver acesso. Não use credenciais de serviço no navegador.
+
+Para preparar dados localmente, em máquina confiável, com as credenciais como variáveis de ambiente, execute `python dataset_export.py --split-at 2026-12-01T00:00:00Z --cutoff 2026-12-08T00:00:00Z` (datas ilustrativas; escolha a divisão antes de ver os resultados). O exportador gera CSV privado com features e rótulos, separação cronológica e exclusão de amostras de treino cujo horizonte invade o teste. Não treina modelos, não publica dados no GitHub e não garante independência entre operações.

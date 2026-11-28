@@ -1,0 +1,9 @@
+
+# Private credentials and research outputs
+.env
+.env.*
+.streamlit/secrets.toml
+private_data/
+replay_results.csv
+__pycache__/
+*.pyc
