@@ -1,6 +1,5 @@
 import pandas as pd
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
 
 from data_feed import get_market_data
 from indicators import calculate_indicators
@@ -35,9 +34,6 @@ st.caption(
     "A atualização visual ocorre a cada 15 segundos; isso não inicia o worker."
 )
 
-st_autorefresh(interval=15_000, key="trader_ai_monitor_refresh")
-
-
 def formatar_horario(value):
     if not value:
         return "Sem registro"
@@ -51,6 +47,7 @@ def formatar_horario(value):
         return str(value)
 
 
+@st.fragment(run_every="15s")
 def render_monitoramento():
     try:
         rows = listar_estado_monitoramento(limit=30)
