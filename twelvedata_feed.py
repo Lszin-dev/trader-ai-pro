@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -118,6 +119,8 @@ class TwelveDataFeed:
 
         if frame.empty or len(frame) < 30:
             raise TwelveDataError(f"{symbol}: candles válidos insuficientes.")
+        if not np.isfinite(frame.to_numpy(dtype=float)).all() or (frame[["open", "high", "low", "close"]] <= 0).any().any():
+            raise TwelveDataError(f"{symbol}: candle contém preço inválido.")
 
         reference_time = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
         if reference_time.tzinfo is None:
