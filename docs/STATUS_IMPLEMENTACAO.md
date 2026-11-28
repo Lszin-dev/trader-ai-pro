@@ -51,3 +51,7 @@ A configuração `render.yaml` permanece com `autoDeploy: false`; nenhum serviç
 
 - Exportador `dataset_export.py` prepara amostras locais por fonte/ativo/versão, com corte cronológico e expurgo de horizontes que cruzam o início do teste. Nenhum modelo treinado ou dataset real exportado nesta etapa. O CSV é privado e ignorado pelo Git.
 - A migração também exige que a abertura hipotética seja posterior ao registro no servidor, para evitar cadastrar entradas retroativas.
+
+## Backup — preparação
+
+- `backup.py` exporta as tabelas de aplicação sem modificar dados, cifra e autentica a cópia, valida contagens/chaves e permite envio opcional a bucket privado com verificação por leitura. Limite de 100 mil linhas por tabela e 64 MiB de JSON; não é backup transacional nem inclui todo o projeto. `docs/BACKUP.md` documenta configuração, agendamento e recuperação. Ainda não há bucket, credenciais, backup real, agendamento ou ensaio de restauração.

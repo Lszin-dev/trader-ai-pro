@@ -7,3 +7,5 @@ private_data/
 replay_results.csv
 __pycache__/
 *.pyc
+
+*.fernet
