@@ -110,7 +110,7 @@ def scan_otcharts_symbol(feed, symbol: str) -> Dict[str, object]:
             OTCHARTS_VENUE,
             symbol,
             timeframe_seconds=60,
-            limit=300,
+            limit=1000,
             max_age_seconds=90,
         )
         data_5m = _resample_5m(data_1m)
