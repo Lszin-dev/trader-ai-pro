@@ -29,7 +29,7 @@ class FakeSession:
 
 def make_values(now, count=80):
     end = pd.Timestamp(now).floor("min")
-    start = end - pd.Timedelta(minutes=count)
+    start = end - pd.Timedelta(minutes=count - 1)
     rows = []
     for i in range(count):
         stamp = start + pd.Timedelta(minutes=i)
