@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from twelvedata_feed import TwelveDataFeed, TwelveDataError
+from twelvedata_feed import TwelveDataError, TwelveDataFeed
 
 
 class FakeResponse:
@@ -46,7 +46,7 @@ def make_values(now, count=80):
 
 class TwelveDataFeedTests(unittest.TestCase):
     def setUp(self):
-        self.now = pd.Timestamp("2026-11-28T12:00:30Z")
+        self.now = pd.Timestamp("2026-11-30T12:00:30Z")
 
     def test_converts_candles_to_utc_and_uses_auth_header(self):
         session = FakeSession({"meta": {}, "values": make_values(self.now)})
@@ -94,6 +94,35 @@ class TwelveDataFeedTests(unittest.TestCase):
         feed.get_candles(now=self.now)
         self.assertNotIn("apikey", session.last_params)
         self.assertNotIn("do-not-leak", str(session.last_params))
+
+    def test_exchange_rate_returns_recent_timestamped_quote(self):
+        stamp = int((self.now - pd.Timedelta(seconds=3)).timestamp())
+        session = FakeSession({"symbol": "EUR/USD", "rate": 1.08525, "timestamp": stamp})
+        feed = TwelveDataFeed(api_key="test", session=session)
+        result = feed.get_exchange_rate(now=self.now)
+        self.assertEqual(result["price"], 1.08525)
+        self.assertLessEqual(result["age_seconds"], 3.1)
+        self.assertIn("exchange_rate", session.last_url)
+        self.assertNotIn("apikey", session.last_params)
+
+    def test_exchange_rate_rejects_stale_quote(self):
+        stamp = int((self.now - pd.Timedelta(seconds=30)).timestamp())
+        session = FakeSession({"symbol": "EUR/USD", "rate": 1.08525, "timestamp": stamp})
+        feed = TwelveDataFeed(api_key="test", session=session)
+        with self.assertRaises(TwelveDataError):
+            feed.get_exchange_rate(now=self.now, max_age_seconds=15)
+
+    def test_usage_accepts_paid_plan_without_daily_fields(self):
+        session = FakeSession({
+            "timestamp": "2026-11-30 12:00:00",
+            "current_usage": 2,
+            "plan_limit": 55,
+            "plan_category": "grow",
+        })
+        feed = TwelveDataFeed(api_key="test", session=session)
+        usage = feed.get_usage()
+        self.assertEqual(usage["plan_limit"], 55)
+        self.assertIsNone(usage["daily_usage"])
 
 
 if __name__ == "__main__":
