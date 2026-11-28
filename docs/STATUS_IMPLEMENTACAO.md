@@ -40,3 +40,11 @@ A configuração `render.yaml` permanece com `autoDeploy: false`; nenhum serviç
 - Guard local de orçamento diário (750 créditos estimados por processo, sincronizado com snapshots da API; não é uma garantia de uso global).
 - Worker em observação não atualiza nem insere histórico legado, inclusive nas fontes alternativas.
 - Replay offline em `backtest.py`, com candles fechados, atraso hipotético e avaliações 1M/5M. Ainda não há avaliação ao vivo dos novos candidatos, coleta de dataset real, backup recorrente ou modelo ML treinado.
+
+## Pesquisa prospectiva (nova fase, desligada por padrão)
+
+- Migração separada `supabase/migrations/20261128_pesquisa_sinais.sql`; precisa ser executada no Supabase. Dataset privado com RLS, sem acesso anon/authenticated.
+- `research.py` registra duas avaliações por candidato revalidado, com versão, fonte, ativo, features, horário de observação e próxima abertura de minuto estritamente futura. Chave composta evita duplicatas.
+- Avaliação usa somente aberturas exatas de candles encerrados da mesma fonte; falta de dados não vira erro/acerto. Sem histórico suficiente após tolerância, marca SEM_DADOS. Não equivale a uma operação real nem usa preços da IQ Option.
+- `RESEARCH_ENABLED=true` somente após migração e confirmação de permissão de escrita no worker. O painel consulta contagens exatas com credencial de serviço no servidor, sem expor a chave.
+- Machine learning, backup recorrente e testes reais de conexão ainda pendentes; não há dataset de mercado coletado por esta alteração.

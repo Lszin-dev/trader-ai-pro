@@ -11,6 +11,8 @@ services:
         sync: false
       - key: SUPABASE_KEY
         sync: false
+      - key: RESEARCH_ENABLED
+        value: "false"
       - key: DATA_PROVIDER
         value: twelvedata
       - key: TWELVE_DATA_API_KEY

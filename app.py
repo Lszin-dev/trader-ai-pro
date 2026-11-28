@@ -9,6 +9,7 @@ from indicators import calculate_indicators
 from monitor_state import listar_estado_monitoramento
 from strategy import analyze_market
 from reliability import quote_is_current
+from research import summarize_research, STRATEGY_VERSION
 
 
 st.set_page_config(
@@ -262,6 +263,23 @@ def render_monitoramento():
 
 render_monitoramento()
 
+
+st.divider()
+st.header("🧪 Pesquisa simulada")
+st.caption("Resultados hipotéticos de abertura de candles da Twelve Data; não são resultados da corretora. Versão: " + STRATEGY_VERSION)
+if st.button("Consultar resultados simulados"):
+    try:
+        report = summarize_research("twelvedata", "FOREX:EURUSD")
+        for expiry, counts in report.items():
+            st.markdown(f"**Expiração {expiry}M**")
+            c1,c2,c3 = st.columns(3)
+            c1.metric("Acertos / erros", f"{counts['ACERTO']} / {counts['ERRO']}")
+            rate = counts["taxa"]
+            c2.metric("Taxa sem empates", "Sem amostra" if rate is None else f"{rate:.1f}%")
+            c3.metric("Pendentes", counts["PENDENTE"])
+            st.caption(f"Empates: {counts['EMPATE']} • Sem dados: {counts['SEM_DADOS']}")
+    except Exception:
+        st.info("Pesquisa ainda não disponível: confira a migração e as permissões do servidor.")
 
 st.divider()
 st.header("📊 Desempenho histórico")

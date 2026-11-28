@@ -23,6 +23,7 @@ from monitor_state import salvar_estado_monitoramento
 from strategy import analyze_market
 from reliability import advance_confirmation, closed_five_minute, validate_ohlc
 from quota_budget import DailyBudget
+from research import create_trials, record_trials, settle_pending
 
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -56,6 +57,8 @@ TWELVE_DATA_SYMBOLS = [
     if item.strip()
 ][:1]
 CATALOG_REFRESH_SECONDS = 900
+
+RESEARCH_ENABLED = os.getenv("RESEARCH_ENABLED", "false").lower() == "true"
 
 RUNNING = True
 _SYMBOL_CACHE: List[str] = []
@@ -271,6 +274,13 @@ def scan_twelvedata_symbol(feed, symbol: str) -> Dict[str, object]:
             _persist_state("twelvedata", outcome)
             return outcome
         data_1m = feed.get_candles(symbol=symbol, interval="1min", outputsize=250, max_age_seconds=150)
+        research_details = {"enabled": RESEARCH_ENABLED}
+        if RESEARCH_ENABLED:
+            try:
+                research_details["settled"] = settle_pending("twelvedata", asset_key, data_1m)
+            except Exception:
+                logger.exception("Falha ao avaliar pesquisa; monitoramento continua.")
+                research_details["error"] = "Falha na avaliação da pesquisa."
         outcome = _analyze_frames(asset_key, data_1m)
         streak, advanced = _update_candidate_streak(asset_key, outcome["signal"], data_1m.index[-1])
         outcome["details"]["candidate_confirmations"] = streak
@@ -280,6 +290,17 @@ def scan_twelvedata_symbol(feed, symbol: str) -> Dict[str, object]:
             if streak == MIN_CANDIDATE_CONFIRMATIONS and advanced:
                 revalidation = _revalidate_twelvedata(feed, symbol, asset_key)
                 outcome["details"]["provider_revalidation"] = revalidation
+                if revalidation.get("valid") and RESEARCH_ENABLED:
+                    try:
+                        observed = datetime.now(timezone.utc)
+                        if validate_entry_quote(revalidation["price"], revalidation["quote_timestamp"], now=observed, max_age_seconds=15)["valid"]:
+                            rows = create_trials("twelvedata", asset_key, data_1m.index[-1], observed, outcome["signal"],
+                                outcome["details"]["technical_score"], {"metrics": outcome["details"]["metrics"], "checks": outcome["details"]["checks"], "confirmations": streak})
+                            record_trials(rows)
+                            research_details["recorded"] = True
+                    except Exception:
+                        logger.exception("Falha ao registrar pesquisa; monitoramento continua.")
+                        research_details["error"] = "Falha no registro da pesquisa."
                 if revalidation.get("valid"):
                     outcome["reason"] += " Revalidado neste ciclo no provedor; a cotação da corretora ainda precisa coincidir no instante da entrada."
                 else:
@@ -296,6 +317,7 @@ def scan_twelvedata_symbol(feed, symbol: str) -> Dict[str, object]:
             else:
                 outcome["reason"] += f" Aguardando confirmação consecutiva {streak}/{MIN_CANDIDATE_CONFIRMATIONS}."
 
+        outcome["details"]["research"] = research_details
         _persist_state("twelvedata", outcome, data_1m)
         return outcome
     except Exception as exc:
@@ -412,7 +434,7 @@ def run_cycle() -> Dict[str, int]:
         raise
 
     duration = round(time.monotonic() - started, 2)
-    worker_details.update({"cycle_duration_seconds": duration, "totals": totals})
+    worker_details.update({"cycle_duration_seconds": duration, "totals": totals, "credit_budget": _DAILY_BUDGET.snapshot() if ACTIVE_PROVIDER == "twelvedata" else {}})
     logger.info("Ciclo concluído: %s (%.2fs)", totals, duration)
     _persist_state(ACTIVE_PROVIDER, {"asset": "_WORKER", "status": "observed", "signal": "AGUARDAR", "reason": f"Ciclo concluído: {totals}", "details": worker_details})
     return totals
